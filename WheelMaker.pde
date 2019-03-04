@@ -149,12 +149,16 @@ void draw()
 
 void keyReleased()
 {
-  if (key == CODED && keyCode == UP)//if you press the UP arrow we move the display to the next layout, so better or equal than our current layout. It does wrap if you go too high, though.
-    current_index = (current_index + 1) % layouts.size();
-    
-  else if (key == CODED && keyCode == DOWN)//if you press the DOWN arrow we move the display down to the previous layout, so worse or equal to our current layout. It does wrap if you go too low, though.
-    current_index = (current_index + layouts.size() - 1) % layouts.size();
-    
+  if (key == CODED)
+  {
+    switch (keyCode)
+    {
+      case UP: current_index = (current_index + 1) % layouts.size(); break; //if you press the UP arrow we move the display to the next layout, so better or equal than our current layout. It does wrap if you go too high, though.
+      case DOWN: current_index = (current_index + layouts.size() - 1) % layouts.size(); break; //if you press the DOWN arrow we move the display down to the previous layout, so worse or equal to our current layout. It does wrap if you go too low, though.
+      case LEFT: IntList ill = layouts.get(current_index).layout; ill.push(ill.remove(0)); break; //if you press the LEFT arrow it rotates the graph one node to the left, so position 0 gets put on the end
+      case RIGHT: IntList ilr = layouts.get(current_index).layout; ilr.insert(0,ilr.pop()); break; //if you press the RIGHT arrow it rotates the graph one node to the right, so the last node is pushed to the beginning
+    }
+  }
   else if (key == 's')//save a screenshot if you press the 's' key
     saveFrame("Screencap.png");
 }
@@ -165,16 +169,20 @@ void keyReleased()
 ArrayList<Result> produce_layouts()
 {
   //first get a list of all possible permutations of [0,1,...,n], with n being the number of names you input
-  ArrayList<IntList> permutations = get_permutations(names.length);
+  //however, since the layout is circular {0,1,2} is the same as {2,0,1}, just shifted right one space. So we don't want a full list of permutations, just those that are distinct even with the circular layout
+  //if you make a list of all 6 permutations of {0,1,2} and cross out all the 'duplicates', you'll notice that you get only 2 results. Do this with {0,1,2,3} and your 24 results pare down to 6.
+  //this can be understood more intutively by realizing there are n ways to rotate the graph (so a 4-pointed circle can be rotated in 4 ways), so if you divide by that you get n!/n, which is just (n-1)!
+  ArrayList<IntList> permutations = get_permutations(names.length - 1);
   
-  //the above step would normally be good enough, but because of the circular nature of the wheel [0,1,2] is a duplicate of [2,0,1] (just rotated to the right one space). Remove all duplicates.
-  ArrayList<IntList> trimmed_permutations = remove_duplicates(permutations);
+  //so instead of calculating the full permutation set and then cutting out all the duplicates we can drastically improve performance by computing a smaller permutation set and appending the final number to each layout
+  for (IntList il : permutations)
+    il.append(names.length - 1);
   
   //the output list of results
   ArrayList<Result> retval = new ArrayList<Result>();
   
   //for each permuation of the list...
-  for (IntList il : trimmed_permutations)
+  for (IntList il : permutations)
   {
     //for each set of hops (1 is the clockwise neighbor, so it's always done, and the last hop would be to the counter-clockwise neighbor, which wouldn't make much sense)...
     for (int j = 2; j < names.length - 1; ++j)
@@ -359,125 +367,10 @@ ArrayList<IntList> get_permutations(int n)
   return vals;
 }
 
-/*
-
-//naive implementation of the recursive Steinhaus-Johnson-Trotter algorithm (but done with loops instead of recursion). May improve to the full swapping version later, but this works plenty fast enough for my purposes.
-//more info here: https://en.wikipedia.org/wiki/Steinhaus%E2%80%93Johnson%E2%80%93Trotter_algorithm
-//note: since I don't care about the order of the layouts with respect to each other, the direction swapping isn't necessary. The SJT algorithm desires the correct order to traverse the permutahedron properly, but I don't care.
-ArrayList<IntList> get_permutations(int n)
-{
-  //our current list of permutations
-  ArrayList<IntList> vals = new ArrayList<IntList>();
-  
-  //it starts with just the first value, 0, as a single row (since there's only 1 way to arrange a single element)
-  vals.add(new IntList(new int[]{0}));
-  
-  //for each number not yet added...
-  for (int i = 1; i < n; ++i)
-  {
-    //this list will store all the entries we create this time through the loop, as in all the entries with length i+1
-    ArrayList<IntList> nextset = new ArrayList<IntList>();
-    
-    //for each entry in the value list so far
-    int direction = -1;//numbers start at the end of the layout, and move backwards towards the front. Once there, direction flips and it moves towards the back again, where it flips again, and so on.
-    for (int j = 0; j < vals.size(); ++j)
-    {
-      //get the entry we're looking at, like {0,1}
-      IntList tv = vals.get(j);
-      
-      //create a new list with i inserted into each possible position of this entry
-      int start = direction < 0 ? tv.size() : 0;//start at the back if direction is negative, otherwise we're starting at the front
-      int end = direction < 0 ? -1 : tv.size() + 1;//the end has to be pushed out one space since we can't do >= or <=. With != we've got to be specific.
-      
-      for (int k = start; k != end; k += direction)
-      {
-        //copy the current entry...
-        IntList nv = tv.copy();
-        
-        //special case for appending to the end
-        if (k >= nv.size())
-          nv.append(i);
-        //otherwise just insert it normally
-        else
-          nv.insert(k,i);
-        
-        //add this new layout to the next set (where i+1 will expand this and be inserted into each possible position)
-        nextset.add(nv);
-      }
-      
-      //flip the direction
-      direction *= -1;
-    }
-    
-    //dump the old set (which had lists only i-1 elements long instead of i elements long) and replace it with the new set
-    vals = nextset;
-  }
-  
-  //return the last set done by the loop, which will have n-length sets
-  return vals;
-}
-*/
 
 
 
-
-//misleadingly titled, but I can't think of a better name. There are no true duplicates if we are using the permutation list, but due to the circular nature of our layouts {0,1,2} is functionally the same as {2,0,1}, just rotated one space to the right.
-ArrayList<IntList> remove_duplicates(ArrayList<IntList> vals)
-{
-  //this could be done inline, but whatever. Make a copy of the input so we don't destroy it.
-  ArrayList<IntList> retval = new ArrayList<IntList>(vals);
-  
-  //for each entry in the list of layouts....
-  for (int i = 0; i < retval.size(); ++i)
-  {
-    //get the current entry
-    IntList il = retval.get(i);
-    
-    //run through the rest of the list and remove any that could be considered duplicates of this list
-    for (int j = i + 1; j < retval.size(); ++j)
-    {
-      if (circular_equivalence(il, retval.get(j)))
-      {
-        retval.remove(j);//remove the entry
-        --j;//back up the iterator or we'll end up skipping entries. I don't think adjacent entries will ever be equivalent, but I'm not a math professor.
-      }
-    }
-  }
-  
-  return retval;
-}
-
-
-
-
-boolean circular_equivalence(IntList lhs, IntList rhs)
-{
-  //find a common starting point, so if lhs[0] == 7, find out where 7 is in rhs
-  int start_lhs = 0;
-  int start_rhs = 0;
-  for (int i = 0; i < rhs.size(); ++i)
-  {
-    if (rhs.get(i) == lhs.get(start_lhs))
-    {
-      start_rhs = i;
-      break;
-    }
-  }
-  
-  //now loop through to see if there are any differences
-  for (int i = 1; i < lhs.size(); ++i)//start at 1 since we know lhs[0] and rhs[start_rhs] match
-  {
-    if (lhs.get(i) != rhs.get((i + start_rhs) % rhs.size()))//% rhs.size() lets us wrap around to the beginning
-      return false;
-  }
-  
-  //if we didn't hit any differences then this is equivalent
-  return true;
-}
-
-
-
-
+//written to pare down the result list to just those that have complete justification graphs. Nice, but you only get a handful of results unless you really add a ton of rivalries.
 ArrayList<Result> remove_entries_without_justifications(ArrayList<Result> vals)
 {
   ArrayList<Result> retval = new ArrayList<Result>();
@@ -494,7 +387,6 @@ ArrayList<Result> remove_entries_without_justifications(ArrayList<Result> vals)
 
 
 
-//written to pare down the result list to just those that have complete justification graphs. Nice, but you only get a handful of results unless you really add a ton of rivalries.
 boolean has_complete_justifications(Result r)
 {
   //for each node in the layout...
