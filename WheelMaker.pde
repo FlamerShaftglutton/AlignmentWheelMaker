@@ -1,7 +1,4 @@
-int[][] damage;
-String[][] justifications;
-String[] names;
-
+Configs configs;
 PVector[] spots;
 
 ArrayList<Result> layouts;
@@ -15,11 +12,11 @@ void setup()
   size(800,800);
   
   //fill this in with your names
-  names = new String[]{ "Fire", "Plant","Stone","Lisa Frank","Vacuum","Electricity","Water" };
+  String[] names = new String[]{ "Fire", "Plant","Stone","Lisa Frank","Vacuum","Electricity","Water" };
+  color[] colors = new color[]{ #FFFFFF,#FFFFFF,#FFFFFF,#FFFFFF,#FFFFFF,#FFFFFF,#FFFFFF };
+  int num_to_keep = 5;
   
-  //just some initializers
-  damage = new int[names.length][names.length];
-  justifications = new String[names.length][names.length]; for (int i = 0; i < names.length; ++i) { for (int j = 0; j < names.length; ++j) justifications[i][j] = ""; }
+  configs = new Configs(names, colors, num_to_keep);
   
   //replace these with your own rivalries
   add_rivalry("Fire","Plant",10,"Burns");
@@ -63,7 +60,7 @@ void setup()
   textAlign(CENTER,CENTER);
   
   //precalculate the position of all the circles
-  spots = new PVector[names.length];
+  spots = new PVector[configs.num_to_include];
   for (int i = 0; i < spots.length; ++i)
   {
     float ex = width / 2f;
@@ -84,7 +81,7 @@ void setup()
 void add_rivalry(String from, String to, int level, String justification)
 {
   //make a stringlist out of the names list since it gives us better search functionality
-  StringList s = new StringList(names);
+  StringList s = new StringList(configs.names);
   
   //get the indices of the two names
   int from_index = s.index(from);
@@ -95,8 +92,8 @@ void add_rivalry(String from, String to, int level, String justification)
   if (to_index < 0) println(to + " is not a valid name.");
   
   //update the damage and justification grids with the new values
-  damage[from_index][to_index] = level;
-  justifications[from_index][to_index] = justification;
+  configs.damage[from_index][to_index] = level;
+  configs.justifications[from_index][to_index] = justification;
 }
 
 
@@ -114,20 +111,21 @@ void draw()
   textSize(16);
   
   Result r = layouts.get(current_index);
-  for (int i = 0; i < r.layout.size(); ++i)
+  for (int i = 0; i < spots.length; ++i)
   {
     PVector p = spots[i];
-    fill(255);
+    int j = r.layout.get(i);
+    fill(configs.colors[j]);
     stroke(0);
     strokeWeight(1);
     
     ellipse(p.x,p.y,2f * circle_radius, 2f * circle_radius);
     
     fill(0);
-    text(names[r.layout.get(i)], p.x, p.y);
+    text(configs.names[j], p.x, p.y);
   }
   
-  for (int i = 0; i < r.layout.size(); ++i)
+  for (int i = 0; i < spots.length; ++i)
   {
     PVector p = spots[i];//the current circle
     
@@ -137,8 +135,8 @@ void draw()
     draw_arrow(p, p1, circle_radius);
     draw_arrow(p, p2, circle_radius);
     
-    draw_text_between(p, p1, justifications[r.layout.get(i)][r.layout.get((i+1) % spots.length)]);
-    draw_text_between(p, p2, justifications[r.layout.get(i)][r.layout.get((i+r.hops) % spots.length)]);
+    draw_text_between(p, p1, configs.justifications[r.layout.get(i)][r.layout.get((i+1) % spots.length)]);
+    draw_text_between(p, p2, configs.justifications[r.layout.get(i)][r.layout.get((i+r.hops) % spots.length)]);
   }
   
   text("Score: " + r.score, width * 0.9f, 24f);
@@ -169,14 +167,8 @@ void keyReleased()
 ArrayList<Result> produce_layouts()
 {
   //first get a list of all possible permutations of [0,1,...,n], with n being the number of names you input
-  //however, since the layout is circular {0,1,2} is the same as {2,0,1}, just shifted right one space. So we don't want a full list of permutations, just those that are distinct even with the circular layout
-  //if you make a list of all 6 permutations of {0,1,2} and cross out all the 'duplicates', you'll notice that you get only 2 results. Do this with {0,1,2,3} and your 24 results pare down to 6.
-  //this can be understood more intutively by realizing there are n ways to rotate the graph (so a 4-pointed circle can be rotated in 4 ways), so if you divide by that you get n!/n, which is just (n-1)!
-  ArrayList<IntList> permutations = get_permutations(names.length - 1);
-  
-  //so instead of calculating the full permutation set and then cutting out all the duplicates we can drastically improve performance by computing a smaller permutation set and appending the final number to each layout
-  for (IntList il : permutations)
-    il.append(names.length - 1);
+  //however, since the layout is circular set {0,1,2} is the same as {2,0,1}, just shifted right one space. So we don't want a full list of permutations, just those that are distinct even with the circular layout
+  ArrayList<IntList> permutations = get_circular_permutations(configs.num_total,configs.num_to_include);
   
   //the output list of results
   ArrayList<Result> retval = new ArrayList<Result>();
@@ -185,10 +177,10 @@ ArrayList<Result> produce_layouts()
   for (IntList il : permutations)
   {
     //for each set of hops (1 is the clockwise neighbor, so it's always done, and the last hop would be to the counter-clockwise neighbor, which wouldn't make much sense)...
-    for (int j = 2; j < names.length - 1; ++j)
+    for (int j = 2; j < configs.num_total - 1; ++j)
     {
       //determine the score make a Result object to store all the stats in
-      Result r = new Result(il, j, get_score(il.array(), j));
+      Result r = new Result(il, j, get_score(il, j));
       
       //a special case for trying to append to the end of the list
       if (retval.isEmpty() || r.score >= retval.get(retval.size()-1).score)
@@ -214,17 +206,17 @@ ArrayList<Result> produce_layouts()
 
 
 
-int get_score(int[] layout, int hops)
+int get_score(IntList layout, int hops)
 {
   int retval = 0;
   
   //pretty easy, just loop through each node, and add up how much damage it does to its clockwise neighbor and its (+hops) neighbor
-  for (int i = 0; i < layout.length; ++i)
+  for (int i = 0; i < layout.size(); ++i)
   {
-    int elm = layout[i];
+    int elm = layout.get(i);
     
-    retval += damage[elm][layout[(i + 1) % names.length]]; //% names.length lets us wrap around
-    retval += damage[elm][layout[(i + hops) % names.length]];
+    retval += configs.damage[elm][layout.get((i + 1) % layout.size())]; //% names.length lets us wrap around
+    retval += configs.damage[elm][layout.get((i + hops) % layout.size())];
   }
   
   return retval;
@@ -317,59 +309,7 @@ void draw_text_between(PVector c0, PVector c1, String just)
 
 
 
-//naive implementation of the recursive Steinhaus-Johnson-Trotter algorithm (but done with loops instead of recursion). May improve to the full swapping version later, but this works plenty fast enough for my purposes.
-//more info here: https://en.wikipedia.org/wiki/Steinhaus%E2%80%93Johnson%E2%80%93Trotter_algorithm
-//note: since I don't care about the order of the layouts with respect to each other, the direction swapping isn't necessary. The SJT algorithm desires the correct order to traverse the permutahedron properly, but I don't care.
-ArrayList<IntList> get_permutations(int n)
-{
-  //our current list of permutations
-  ArrayList<IntList> vals = new ArrayList<IntList>();
-  
-  //it starts with just the first value, 0, as a single row (since there's only 1 way to arrange a single element)
-  vals.add(new IntList(new int[]{0}));
-  
-  //for each number not yet added...
-  for (int i = 1; i < n; ++i)
-  {
-    //this list will store all the entries we create this time through the loop, as in all the entries with length i+1
-    ArrayList<IntList> nextset = new ArrayList<IntList>();
-    
-    //for each entry in the value list so far
-    for (int j = 0; j < vals.size(); ++j)
-    {
-      //get the entry we're looking at, like {0,1}
-      IntList tv = vals.get(j);
-      
-      //for each space in this entry
-      for (int k = 0; k < tv.size(); ++k)
-      {
-        //copy the current entry...
-        IntList nv = tv.copy();
-
-        //push i into this spot
-        nv.insert(k,i);
-        
-        //add this new layout to the next set (where i+1 will expand this and be inserted into each possible position)
-        nextset.add(nv);
-      }
-      
-      //special case for the last entry since we can't insert at tv.size()
-      IntList lv = tv.copy();
-      lv.append(i);
-      nextset.add(lv);
-    }
-    
-    //dump the old set (which had lists only i-1 elements long instead of i elements long) and replace it with the new set
-    vals = nextset;
-  }
-  
-  //return the last set done by the loop, which will have n-length sets
-  return vals;
-}
-
-
-
-
+/*
 //written to pare down the result list to just those that have complete justification graphs. Nice, but you only get a handful of results unless you really add a ton of rivalries.
 ArrayList<Result> remove_entries_without_justifications(ArrayList<Result> vals)
 {
@@ -402,6 +342,30 @@ boolean has_complete_justifications(Result r)
   }
   
   return true;
+}
+
+*/
+
+
+class Configs
+{
+  String[] names;
+  color[] colors;
+  int num_to_include;
+  int num_total;
+  
+  int[][] damage;
+  String[][] justifications;
+  
+  Configs(String[] names, color[] colors, int num_to_include)
+  {
+    this.names = names; 
+    this.colors = colors; 
+    this.num_to_include = num_to_include; 
+    num_total = names.length; 
+    damage = new int[names.length][names.length]; 
+    justifications = new String[names.length][names.length]; for (int i = 0; i < names.length; ++i) { for (int j = 0; j < names.length; ++j) justifications[i][j] = ""; }
+  }
 }
 
 
